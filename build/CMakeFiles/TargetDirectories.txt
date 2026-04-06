@@ -1,0 +1,3 @@
+/Users/mridultyagi/Desktop/mini_reddis/build/CMakeFiles/redis.dir
+/Users/mridultyagi/Desktop/mini_reddis/build/CMakeFiles/edit_cache.dir
+/Users/mridultyagi/Desktop/mini_reddis/build/CMakeFiles/rebuild_cache.dir

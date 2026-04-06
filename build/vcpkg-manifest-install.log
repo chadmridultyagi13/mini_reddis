@@ -1,0 +1,14 @@
+Detecting compiler hash for triplet x64-osx...
+Compiler found: /usr/bin/c++
+The following packages are already installed:
+    asio:x64-osx@1.30.2
+    pthreads:x64-osx@3.0.0#14
+  * vcpkg-cmake:x64-osx@2023-05-04
+  * vcpkg-cmake-config:x64-osx@2022-02-06#1
+asio provides CMake targets:
+
+  # this is heuristically generated, and may not be correct
+  find_package(asio CONFIG REQUIRED)
+  target_link_libraries(main PRIVATE asio::asio)
+
+All requested installations completed successfully in: 614 us

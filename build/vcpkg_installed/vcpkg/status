@@ -1,0 +1,34 @@
+Package: vcpkg-cmake-config
+Version: 2022-02-06
+Port-Version: 1
+Architecture: x64-osx
+Multi-Arch: same
+Abi: 5f66d01a01e22bc5e958d55e5e8601fad0497e0f385eb8483aa360556cfd7e34
+Status: install ok installed
+
+Package: vcpkg-cmake
+Version: 2023-05-04
+Architecture: x64-osx
+Multi-Arch: same
+Abi: 2f5a58700e55a6737db0eb965e63c13e793bb4a16a5dcd4924e5fa30d1fd5109
+Status: install ok installed
+
+Package: asio
+Version: 1.30.2
+Depends: vcpkg-cmake, vcpkg-cmake-config
+Architecture: x64-osx
+Multi-Arch: same
+Abi: bad6645e31da06cd123da9a20d6f11daa2e8c3b836efc35d6fac8bfc5701761a
+Description: Asio is a cross-platform C++ library for network and low-level I/O programming that provides developers with a consistent asynchronous model using a modern C++ approach.
+Status: install ok installed
+
+Package: pthreads
+Version: 3.0.0
+Port-Version: 14
+Depends: vcpkg-cmake-config
+Architecture: x64-osx
+Multi-Arch: same
+Abi: 9590768bd7a1816538b76b2a447a2d9792ce9d1a71eb26c739c12b8ff90ecf85
+Description: Meta-package that provides PThreads4W on Windows, or assumes presence of system pthreads on POSIX systems.
+Status: install ok installed
+

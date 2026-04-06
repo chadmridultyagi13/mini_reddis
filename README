@@ -1,0 +1,223 @@
+🧠 0. What you THINK you did vs what you ACTUALLY did
+What it feels like:
+
+“I wrote a C++ file and somehow it runs”
+
+Reality:
+
+You built a complete software system pipeline
+
+🧱 1. Your code (the core)
+
+File:
+
+src/main.cpp
+
+👉 This is your actual logic
+
+It does:
+
+create server
+accept clients
+send response
+Analogy:
+
+👉 This is like:
+
+engine of a car 🚗
+
+Without this → nothing exists
+
+⚙️ 2. CMake (the builder)
+
+We added:
+👉 CMake
+
+File:
+
+CMakeLists.txt
+🧠 What CMake does
+
+It answers:
+
+“How do I convert your .cpp into a runnable program?”
+
+Internally:
+
+When you run:
+
+cmake -B build -S .
+
+👉 CMake:
+
+scans src/*.cpp
+prepares build instructions
+generates build files
+
+Then:
+
+cmake --build build
+
+👉 It:
+
+calls compiler (clang)
+compiles code
+creates executable
+Output:
+build/redis
+
+👉 This is your actual program
+
+Analogy:
+Component	Real life
+CMake	factory manager
+Compiler	worker
+Executable	finished product
+📦 3. vcpkg (dependency manager)
+
+We installed:
+👉 vcpkg
+
+🧠 Why needed?
+
+Your project uses:
+
+find_package(asio REQUIRED)
+
+👉 Means:
+
+“I need external library (asio)”
+
+Without vcpkg
+
+You would:
+
+download library manually ❌
+configure include paths ❌
+debug linking errors ❌
+With vcpkg
+
+You wrote:
+
+vcpkg.json
+
+👉 It says:
+
+“I need asio + pthreads”
+
+When you run project
+
+vcpkg:
+
+downloads libraries
+builds them
+connects them with your project
+Analogy:
+Component	Real life
+vcpkg	Amazon
+asio	product
+vcpkg.json	shopping list
+🔗 4. Integration (CMake + vcpkg)
+
+This line is KEY:
+
+-DCMAKE_TOOLCHAIN_FILE=$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake
+🧠 What it means
+
+You are telling CMake:
+
+“Hey, use vcpkg to find libraries”
+
+Without this:
+
+❌ CMake cannot find asio
+❌ build fails
+
+With this:
+
+✔ CMake + vcpkg connected
+✔ dependencies resolved automatically
+
+▶️ 5. run.sh (automation script)
+
+File:
+
+run.sh
+🧠 What it does
+
+Instead of typing:
+
+cmake -B build -S .
+cmake --build build
+./build/redis
+
+👉 You just do:
+
+./run.sh
+Internally:
+Step 1 → configure (CMake)
+Step 2 → install deps (vcpkg)
+Step 3 → build
+Step 4 → run
+Analogy:
+
+👉 run.sh = “one button to start everything”
+
+📁 6. Project structure
+mini_reddis/
+  src/
+    main.cpp
+  CMakeLists.txt
+  run.sh
+  vcpkg.json
+🧠 Why structure matters
+src/ → code
+build/ → compiled output
+root → configuration
+
+👉 This separation is used in real companies
+
+🔌 7. What happens when you run ./run.sh
+
+Let’s break EXACT flow:
+
+Step 1: vcpkg runs
+-- Running vcpkg install
+
+👉 It checks:
+
+do we have asio?
+if not → install
+Step 2: CMake configure
+-- Configuring done
+
+👉 It:
+
+reads CMakeLists
+prepares build
+Step 3: Build
+[100%] Built target redis
+
+👉 Compiler converts .cpp → binary
+
+Step 4: Run program
+Redis server starting...
+
+👉 Your code executes
+
+🌐 8. Your server (runtime behavior)
+
+Your program:
+
+socket → bind → listen → accept
+🧠 What happens
+Server opens port 6379
+Waits for clients
+Client connects (nc)
+Your code handles request
+Analogy:
+Concept	Real life
+socket	phone line
+port	phone number
+client	caller
+server
