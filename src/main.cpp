@@ -12,6 +12,7 @@
 #include<chrono> // for getting the current time in milliseconds
 #include<unordered_map>
 #include<mutex> // to prevent the race condition 
+#include "lists.h" // part of steep 8 to implement the list data structure
 using namespace std ;
 
 // part of step  7 
@@ -20,8 +21,10 @@ struct ValueEntry{
   time_t expiry ; 
 };
 
-// unordered_map<string,>store ;  modified this below for the step 7 , actually this was the part of step 6 
+unordered_map<string,vector<string>>list_store ; // part of step 8 to implement the list data structure 
 
+
+// unordered_map<string,>store ;  modified this below for the step 7 , actually this was the part of step 6 
 unordered_map<string,ValueEntry>store ; // part of step 7 
 
 mutex mtx ; // mutex to protect the shared resource (the store) from concurrent access by multiple threads
@@ -152,6 +155,9 @@ if(cmd[0]=="GET"){
         string response = "$" + to_string(value.size()) + "\r\n" + value + "\r\n";
         send(client_fd, response.c_str(), response.size(), 0);
     }
+}
+if(cmd[0]=="RPUSH"){
+    handle_rpush(cmd,client_fd); // this is the part of step 8 to implement the list data structure and handle the rpush command
 }
   }
 }
