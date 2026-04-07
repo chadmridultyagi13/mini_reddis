@@ -4,11 +4,14 @@
 #include <string>
 #include <mutex>
 #include <sys/socket.h>
+#include <algorithm>
+#include <deque>
 using namespace std;
 // shared from main.cpp
 // part of step 8 
-extern unordered_map<string, vector<string>> list_store;
+extern unordered_map<string,deque<string>> list_store;
 extern mutex mtx;
+
 void handle_rpush(const vector<string>& cmd, int client_fd) {
     // only single element case for this stage
     string key = cmd[1];
@@ -39,11 +42,12 @@ void handle_lrange(const vector<string>&cmd,int client_fd){
     {
         lock_guard<mutex>lock(mtx) ; 
         string response ; 
-        if(list_store.find(key)==list_store.end()){
+        auto it = list_store.find(key);
+        if(it == list_store.end()){
             response = "*0\r\n" ; 
         }
         else{
-            vector<string>&lst = list_store[key] ; 
+            deque<string>&lst = it->second ; 
             int n = lst.size() ;
 
             int start = stoi(cmd[2]); 
@@ -73,6 +77,56 @@ void handle_lrange(const vector<string>&cmd,int client_fd){
                     }
                 }
             }
+        }
+        send(client_fd,response.c_str(),response.size(),0) ;
+    }
+}
+
+// this is the part of step 12 to implement the lpush command for the list data structure
+void handle_lpush(const vector<string>&cmd,int client_fd){ 
+    string key = cmd[1] ;
+    {
+        lock_guard<mutex>lock(mtx) ; 
+        auto &lst = list_store[key];
+        for(int i = 2 ; i < cmd.size() ; i++){
+            lst.push_front(cmd[i]) ; 
+        }
+        int size = lst.size() ;
+        string response = ":" + to_string(size) + "\r\n";
+        send(client_fd,response.c_str(),response.size(),0) ;
+    }
+}
+
+// this is the part of step 13 to implement the llen command for the list data structure
+void handle_llen(const vector<string>&cmd,int client_fd){
+    string key = cmd[1] ; 
+    {
+        lock_guard<mutex>lock(mtx) ; 
+        int size = 0 ;
+        auto it = list_store.find(key);
+        if(it != list_store.end()){
+            size = it->second.size() ;
+        }
+        string response = ":" + to_string(size) + "\r\n";
+        send(client_fd,response.c_str(),response.size(),0) ;
+    }
+}
+
+// this was the part of step 14 to implement the lpop command for the list data structure
+void handle_lpop(const vector<string>&cmd,int client_fd){
+    string key = cmd[1] ; 
+    {
+        lock_guard<mutex>lock(mtx) ; 
+        string response ; 
+        auto it = list_store.find(key);
+        if(it==list_store.end()|| it->second.size()==0){
+            response = "$-1\r\n" ;
+        }
+        else{
+            deque<string>&lst = it->second ; 
+            string value = lst.front() ; 
+            lst.pop_front() ; 
+            response = "$" + to_string(value.size()) + "\r\n" + value + "\r\n";
         }
         send(client_fd,response.c_str(),response.size(),0) ;
     }

@@ -5,4 +5,7 @@
 using namespace std;
 
 void handle_rpush(const vector<string>& cmd, int client_fd);  // part of step 8 
-void handle_lrange(const vector<string>&cmd,int client_fd) ;  // part of step 10
+void handle_lrange(const vector<string>&cmd,int client_fd) ;  // part of step 10 and step 11 
+void handle_lpush(const vector<string>&cmd,int client_fd) ; // this is the part of step 12 to implement the lpush command for the list data structure
+void handle_llen(const vector<string>&cmd,int client_fd) ; // this is the part of step 13 to implement the llen command for the list data structure
+void handle_lpop(const vector<string>&cmd,int client_fd) ; // this is the part of step 14 to implement the lpop command for the list data structure

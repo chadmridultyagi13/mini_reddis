@@ -13,6 +13,7 @@
 #include<unordered_map>
 #include<mutex> // to prevent the race condition 
 #include "lists.h" // part of steep 8 to implement the list data structure
+#include <deque>
 using namespace std ;
 
 // part of step  7 
@@ -21,7 +22,7 @@ struct ValueEntry{
   time_t expiry ; 
 };
 
-unordered_map<string,vector<string>>list_store ; // part of step 8 to implement the list data structure 
+unordered_map<string,deque<string>>list_store ; // part of step 8 to implement the list data structure 
 
 
 // unordered_map<string,>store ;  modified this below for the step 7 , actually this was the part of step 6 
@@ -161,7 +162,16 @@ if(cmd[0]=="RPUSH"){
 }
 if(cmd[0]=="LRANGE"){
     handle_lrange(cmd,client_fd) ; // this is the part of step 10 to implement the lrange command for the list data structure
-  } 
+}
+if(cmd[0]=="LPUSH"){
+    handle_lpush(cmd,client_fd) ; // this is the part of step 12 to implement the lpush command for the list data structure
+}
+if(cmd[0]=="LLEN"){
+    handle_llen(cmd,client_fd) ; // this is the part of step 13 to implement the llen command for the list data structure
+}
+if(cmd[0]=="LPOP"){
+    handle_lpop(cmd,client_fd) ; // this is the part of step 14 to implement the lpop command for the list data structure
+} 
 }
 }
 int main(int argc, char **argv) {
