@@ -33,7 +33,7 @@ void handle_rpush(const vector<string>& cmd, int client_fd) {
     send(client_fd, response.c_str(), response.size(), 0);
 }
 
-// part of step 10 
+// part of step 10 and step 11 to implement the lrange command for the list data structure
 void handle_lrange(const vector<string>&cmd,int client_fd){
     string key = cmd[1] ; 
     {
@@ -42,23 +42,38 @@ void handle_lrange(const vector<string>&cmd,int client_fd){
         if(list_store.find(key)==list_store.end()){
             response = "*0\r\n" ; 
         }
-        else if(stoi(cmd[2])+1>=list_store[key].size()||stoi(cmd[2])>stoi(cmd[3])){
-            response = "*0\r\n" ; 
-        }
         else{
             vector<string>&lst = list_store[key] ; 
-            int start = stoi(cmd[2]) ; 
-            int end = stoi(cmd[3]) ; 
-            int n = lst.size() ; 
-            if(end>=n){
-                end = n-1 ; 
+            int n = lst.size() ;
+
+            int start = stoi(cmd[2]); 
+            int end   = stoi(cmd[3]);  
+
+            if(start < 0) start = n + start;
+            if(end < 0)   end   = n + end;
+
+            if(start < 0) start = 0;
+            if(end < 0)   end   = 0;
+
+            if(start >= n){
+                response = "*0\r\n";
             }
-            response = "*" + to_string(end-start+1) + "\r\n" ;
-            for(int i = start ; i <= end ; i++){
-                response = response + "$" + to_string(lst[i].size())+ "\r\n" + lst[i] + "\r\n" ;
+            else{
+                if(end >= n){
+                    end = n - 1;
+                }
+
+                if(start > end){
+                    response = "*0\r\n";
+                }
+                else{
+                    response = "*" + to_string(end-start+1) + "\r\n" ;
+                    for(int i = start ; i <= end ; i++){
+                        response += "$" + to_string(lst[i].size()) + "\r\n" + lst[i] + "\r\n";
+                    }
+                }
             }
         }
         send(client_fd,response.c_str(),response.size(),0) ;
-
     }
 }
