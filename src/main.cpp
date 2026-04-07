@@ -159,7 +159,10 @@ if(cmd[0]=="GET"){
 if(cmd[0]=="RPUSH"){
     handle_rpush(cmd,client_fd); // this is the part of step 8 to implement the list data structure and handle the rpush command
 }
-  }
+if(cmd[0]=="LRANGE"){
+    handle_lrange(cmd,client_fd) ; // this is the part of step 10 to implement the lrange command for the list data structure
+  } 
+}
 }
 int main(int argc, char **argv) {
   // Flush after every std::cout / std::cerr
