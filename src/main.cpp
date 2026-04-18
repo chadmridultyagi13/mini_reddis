@@ -8,27 +8,54 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 #include<thread> 
+#include<queue>
 #include <vector>
 #include<chrono> // for getting the current time in milliseconds
 #include<unordered_map>
 #include<mutex> // to prevent the race condition 
 #include "lists.h" // part of steep 8 to implement the list data structure
 #include <deque>
+#include "streams.h"
 using namespace std ;
+
+
+struct BlockedClient_Streams{
+    int client_fd;
+    pair<long long,long long> last_id;
+    chrono::steady_clock::time_point expire_time;
+    atomic<bool> done{false};
+    bool infinite; 
+    string response;
+};
+
+
+
+struct StreamEntry{
+    string id ; 
+    vector<pair<string,string>>fields ; 
+};  // this is the part of step 19 to implement the stream data structure and handle the xadd command, here we have defined a structure for each entry in the stream which contains the id and the fields of the entry, and we will store the stream entries in an unordered map where the key is the stream name and the value is a vector of stream entries.
 
 // part of step  7 
 struct ValueEntry{
   string value ; 
   time_t expiry ; 
 };
+struct BlockedClient{
+    int fd;
+    chrono::steady_clock::time_point expiry;
+};
+unordered_map<string, deque<shared_ptr<BlockedClient_Streams>>> blocked_xread;
+
+unordered_map<string,queue<BlockedClient>> blocking_clients;//this is queue as a part of step 16 to store the blocking clients for blpop command  
 
 unordered_map<string,deque<string>>list_store ; // part of step 8 to implement the list data structure 
-
 
 // unordered_map<string,>store ;  modified this below for the step 7 , actually this was the part of step 6 
 unordered_map<string,ValueEntry>store ; // part of step 7 
 
 mutex mtx ; // mutex to protect the shared resource (the store) from concurrent access by multiple threads
+
+unordered_map<string,vector<StreamEntry>> stream_store ; // this is the part of step 19 to implement the stream data structure and handle the xadd command, here we have defined a structure for each entry in the stream which contains the id and the fields of the entry, and we will store the stream entries in an unordered map where the key is the stream name and the value is a vector of stream entries.
 
 
 // used this as the part of step 7 to get the current time in milliseconds
@@ -40,7 +67,7 @@ long long current_time_ms() {
 
 
 // this is the part of the step 5 where i actually parsed the resp bulk string so that i can implement various commands , as all are encoded in resp format as a bulk string 
-vector<string> parse_resp(const string &buffer) {   // ✅ FIXED: function signature was missing
+vector<string> parse_resp(const string &buffer) {  
     vector<string> result;
     int i = 0;
     if (buffer[i] != '*') return result;
@@ -171,7 +198,52 @@ if(cmd[0]=="LLEN"){
 }
 if(cmd[0]=="LPOP"){
     handle_lpop(cmd,client_fd) ; // this is the part of step 14 to implement the lpop command for the list data structure
-} 
+}
+if(cmd[0]=="BLPOP"){
+    handle_blpop(cmd,client_fd) ; // this is the part of step 16 to implement the blpop command for the list data structure
+}
+if(cmd[0]=="TYPE"){ // build this part of step 18 , here i have to tell the type of value stored at the key 
+    string key = cmd[1];
+    string result;
+
+{
+    lock_guard<mutex> lock(mtx);
+
+    auto it = store.find(key);
+
+    if(it != store.end()){
+        // check expiry
+        if(it->second.expiry != -1 && current_time_ms() > it->second.expiry){
+            store.erase(it);
+            result = "none";
+        } else {
+            result = "string";
+        }
+    }
+    // this part has been added as the part of step 19 
+    else if(stream_store.find(key) != stream_store.end()){
+        result = "stream";
+    }
+    else{
+        result = "none";
+    }
+}
+
+string resp = "+" + result + "\r\n";
+send(client_fd, resp.c_str(), resp.size(), 0);
+
+    
+
+}
+if(cmd[0]=="XADD"){
+    handle_xadd(cmd,client_fd) ; // this is the part of step 19 to implement the stream data structure and handle the xadd commandx
+}
+if(cmd[0]=="XRANGE"){
+    handle_xrange(cmd,client_fd) ; 
+}
+if(cmd[0]=="XREAD"){
+    handle_xread(cmd,client_fd) ; // this is the part of step 26 to implement the xread command for the stream data structure
+}
 }
 }
 int main(int argc, char **argv) {
@@ -216,6 +288,13 @@ int main(int argc, char **argv) {
   // You can use print statements as follows for debugging, they'll be visible when running tests.
   std::cout << "Logs from your program will appear here!\n";
 
+
+  thread([](){
+      while(true){
+          handle_timeouts();
+          this_thread::sleep_for(chrono::milliseconds(10));
+      }
+  }).detach();
 
 
 
