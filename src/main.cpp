@@ -16,6 +16,8 @@
 #include "lists.h" // part of steep 8 to implement the list data structure
 #include <deque>
 #include "streams.h"
+#include "transactions.h"
+#include "replication.h"
 using namespace std ;
 
 
@@ -28,7 +30,7 @@ struct BlockedClient_Streams{
     string response;
 };
 
-
+unordered_map<int,bool>in_multi ;  
 
 struct StreamEntry{
     string id ; 
@@ -44,6 +46,9 @@ struct BlockedClient{
     int fd;
     chrono::steady_clock::time_point expiry;
 };
+
+
+unordered_map<int, vector<vector<string>>> queued_commands; 
 unordered_map<string, deque<shared_ptr<BlockedClient_Streams>>> blocked_xread;
 
 unordered_map<string,queue<BlockedClient>> blocking_clients;//this is queue as a part of step 16 to store the blocking clients for blpop command  
@@ -117,7 +122,12 @@ void handle_client(int client_fd){
     if(cmd.size()==0){
       continue ;
     }
-    
+    if(in_multi.find(client_fd)!=in_multi.end()&&in_multi[client_fd]&&cmd[0]!="EXEC"&&cmd[0]!="MULTI"&&cmd[0]!="DISCARD"){
+        queued_commands[client_fd].push_back(cmd);
+        string response = "+QUEUED\r\n" ;
+        send(client_fd,response.c_str(),response.size(),0) ;
+        continue ; 
+    }
     if (cmd[0] == "PING"){
     string response = "+PONG\r\n";
     send(client_fd, response.c_str(), response.size(), 0);
@@ -228,12 +238,8 @@ if(cmd[0]=="TYPE"){ // build this part of step 18 , here i have to tell the type
         result = "none";
     }
 }
-
 string resp = "+" + result + "\r\n";
 send(client_fd, resp.c_str(), resp.size(), 0);
-
-    
-
 }
 if(cmd[0]=="XADD"){
     handle_xadd(cmd,client_fd) ; // this is the part of step 19 to implement the stream data structure and handle the xadd commandx
@@ -244,13 +250,37 @@ if(cmd[0]=="XRANGE"){
 if(cmd[0]=="XREAD"){
     handle_xread(cmd,client_fd) ; // this is the part of step 26 to implement the xread command for the stream data structure
 }
+if(cmd[0]=="INCR"){
+    handle_incr(cmd,client_fd) ; // step 31 + 32 + 34
+}
+if(cmd[0]=="MULTI"){
+    handle_multi(cmd,client_fd) ; // step 35
+}
+if(cmd[0]=="EXEC"){
+    handle_exec(cmd,client_fd) ; // step 36
+}
+if(cmd[0]=="DISCARD"){
+    handle_discard(cmd, client_fd);
+}
+if(cmd[0]=="INFO"){
+    handle_info(cmd,client_fd) ; 
+}
 }
 }
 int main(int argc, char **argv) {
   // Flush after every std::cout / std::cerr
   std::cout << std::unitbuf;
   std::cerr << std::unitbuf;
-  
+  int port = 6379 ;
+  for(int i= 1 ; i< argc ; i++){
+    if(std::string(argv[i])=="--port"){
+        if(i+1<argc){
+            port = stoi(argv[i+1]);
+        }
+    }
+  }
+parse_replication_args(argc, argv);
+
   int server_fd = socket(AF_INET, SOCK_STREAM, 0);
   if (server_fd < 0) {
    std::cerr << "Failed to create server socket\n";
@@ -268,10 +298,10 @@ int main(int argc, char **argv) {
   struct sockaddr_in server_addr;  // it tells me the port and ip address 
   server_addr.sin_family = AF_INET;
   server_addr.sin_addr.s_addr = INADDR_ANY; // this mean it listens on all network interfaces, including localhost and any public IPs assigned to the machine
-  server_addr.sin_port = htons(6379); // htons converts the port number from host byte order to network byte order, which is necessary for correct communication over the network. Port 6379 is the default port for Redis, so this server will listen for incoming connections on that port.
+  server_addr.sin_port = htons(port); // htons converts the port number from host byte order to network byte order, which is necessary for correct communication over the network. Port 6379 is the default port for Redis, so this server will listen for incoming connections on that port.
   
   if (bind(server_fd, (struct sockaddr *) &server_addr, sizeof(server_addr)) != 0) {
-    std::cerr << "Failed to bind to port 6379\n";
+    std::cerr << "Failed to bind to port " << port << "\n";
     return 1;
   }
   
