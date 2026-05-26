@@ -99,6 +99,27 @@ vector<string> parse_resp(const string &buffer) {
 }
 
 
+void apply_set(const vector<string>& cmd, int client_fd, bool respond = true){
+    if(cmd.size() < 3){
+        return;
+    }
+    string key = cmd[1];
+    string value = cmd[2];
+    long long expiry = -1;
+    if(cmd.size() == 5 && cmd[3] == "PX"){
+        long long duration = stoll(cmd[4]);
+        expiry = current_time_ms() + duration;
+    }
+    {
+        lock_guard<mutex> lock(mtx);
+        store[key] = {value, expiry};
+    }
+    if(respond){
+        string response = "+OK\r\n";
+        send(client_fd, response.c_str(), response.size(), 0);
+    }
+}
+
 
 
 // this is the part of step 4 where we will handle multiple clients using multi-threading, we will create a thread for each client connection and in that thread we will handle the client connection, this way we can handle multiple clients simultaneously.
@@ -138,31 +159,15 @@ void handle_client(int client_fd){
       send(client_fd,response.c_str(),response.size(),0);
     }
     // added GET AND SET AS THE PART OF STEP 6 
+
+
 if(cmd[0]=="SET"){
-    if(cmd.size() < 3){
-        continue;
+    apply_set(cmd, client_fd, true);
+    for(int i = 0 ; i < replica_fds.size(); i++){
+        propagate_to_replica(cmd, replica_fds[i]);
     }
-
-    string key = cmd[1];
-    string value = cmd[2];
-
-    long long expiry = -1;
-
-    // Handle PX option
-    // added as a part of step 7 to handle the expiry of the keys
-    if(cmd.size() == 5 && cmd[3] == "PX"){
-        long long duration = stoll(cmd[4]);
-        expiry = current_time_ms() + duration;
-    }
-
-    {
-        lock_guard<mutex> lock(mtx);
-        store[key] = {value, expiry};
-    }
-
-    string response = "+OK\r\n";
-    send(client_fd, response.c_str(), response.size(), 0);
 }
+    
 
 if(cmd[0]=="GET"){
     if(cmd.size()!=2){
@@ -265,6 +270,13 @@ if(cmd[0]=="DISCARD"){
 if(cmd[0]=="INFO"){
     handle_info(cmd,client_fd) ; 
 }
+if(cmd[0]=="REPLCONF"){
+    string response = "+OK\r\n";
+    send(client_fd,response.c_str(),response.size(),0) ;
+}
+if(cmd[0]=="PSYNC"){
+    handle_psync(client_fd) ; 
+}
 }
 }
 int main(int argc, char **argv) {
@@ -285,6 +297,10 @@ parse_replication_args(argc, argv);
   if (server_fd < 0) {
    std::cerr << "Failed to create server socket\n";
    return 1;
+  }
+  if(is_replica){
+    connect_to_master();
+    thread(listen_to_master).detach();
   }
   
   // Since the tester restarts your program quite often, setting SO_REUSEADDR
