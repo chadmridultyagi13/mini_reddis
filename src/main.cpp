@@ -18,6 +18,7 @@
 #include "streams.h"
 #include "transactions.h"
 #include "replication.h"
+#include "rdb_persistence.h"
 using namespace std ;
 
 
@@ -163,9 +164,11 @@ void handle_client(int client_fd){
 
 if(cmd[0]=="SET"){
     apply_set(cmd, client_fd, true);
+    int cmd_size = get_command_size(cmd);
     for(int i = 0 ; i < replica_fds.size(); i++){
         propagate_to_replica(cmd, replica_fds[i]);
     }
+    master_repl_offset += cmd_size;
 }
     
 
@@ -270,12 +273,28 @@ if(cmd[0]=="DISCARD"){
 if(cmd[0]=="INFO"){
     handle_info(cmd,client_fd) ; 
 }
-if(cmd[0]=="REPLCONF"){
+else if(cmd[0]=="PSYNC"){
+    handle_psync(client_fd) ; 
+}
+else if(cmd[0] == "WAIT") {
+    handle_wait(client_fd, cmd) ;  
+}
+else if (
+    cmd.size() >= 3 &&
+    cmd[0] == "REPLCONF" &&
+    cmd[1] == "ACK"
+) {
+    replica_ack_offsets[client_fd] = stoll(cmd[2]);
+}
+else if(cmd[0]=="REPLCONF"){
     string response = "+OK\r\n";
     send(client_fd,response.c_str(),response.size(),0) ;
 }
-if(cmd[0]=="PSYNC"){
-    handle_psync(client_fd) ; 
+if(cmd[0]=="CONFIG"){
+    save_to_rdb(client_fd,cmd) ;
+}
+if(cmd[0]=="KEYS" && cmd.size()==2 && cmd[1]=="*"){
+    handle_keys(client_fd);
 }
 }
 }
@@ -291,17 +310,31 @@ int main(int argc, char **argv) {
         }
     }
   }
+    for(int i = 0 ; i < argc ; i++){
+        if((std::string(argv[i])=="--dir")){
+            if(i+1<argc){
+                dir = argv[i+1] ;
+            }
+        }
+        if(std::string(argv[i])=="--dbfilename"){
+            if(i+1<argc){
+                dbfilename = argv[i+1] ;
+            }
+        }
+    }
 parse_replication_args(argc, argv);
+load_rdb();
 
   int server_fd = socket(AF_INET, SOCK_STREAM, 0);
   if (server_fd < 0) {
    std::cerr << "Failed to create server socket\n";
    return 1;
   }
-  if(is_replica){
-    connect_to_master();
-    thread(listen_to_master).detach();
-  }
+  connect_to_master();
+  if (is_replica) {
+    thread replication_thread(listen_to_master);
+    replication_thread.detach();
+}
   
   // Since the tester restarts your program quite often, setting SO_REUSEADDR
   // ensures that we don't run into 'Address already in use' errors

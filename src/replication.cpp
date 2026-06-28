@@ -11,9 +11,11 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <iostream>
-
+#include <thread>
 using namespace std;
+
 extern void apply_set(const vector<string>& cmd, int client_fd, bool respond);
+unordered_map<int, long long> replica_ack_offsets;
 vector<int> replica_fds;
 int listening_port = 6379;
 bool is_replica = false;
@@ -21,43 +23,57 @@ string master_host = "";
 int master_port = 0;
 string master_replid = "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb";
 long long master_repl_offset = 0;
+long long replica_offset = 0;
 int master_fd = -1;
+
 void connect_to_master() {
-    if (!is_replica) return;
+    if (!is_replica) {
+        return;
+    }
+
     master_fd = socket(AF_INET, SOCK_STREAM, 0);
+
     if (master_fd < 0) {
         cerr << "Failed to create master socket\n";
         return;
     }
+
     sockaddr_in master_addr{};
     master_addr.sin_family = AF_INET;
     master_addr.sin_port = htons(master_port);
+
     string resolved_host = master_host;
+
     if (master_host == "localhost") {
         resolved_host = "127.0.0.1";
     }
+
     if (inet_pton(AF_INET, resolved_host.c_str(), &master_addr.sin_addr) <= 0) {
         cerr << "Invalid master address\n";
         close(master_fd);
         master_fd = -1;
         return;
     }
+
     if (connect(master_fd, (sockaddr*)&master_addr, sizeof(master_addr)) < 0) {
         cerr << "Failed to connect to master\n";
         close(master_fd);
         master_fd = -1;
         return;
     }
-    char buffer[1024];
-    // STEP 1: PING
+
+    char buffer[4096];
+
     string ping =
         "*1\r\n"
         "$4\r\n"
         "PING\r\n";
+
     send(master_fd, ping.c_str(), ping.size(), 0);
-    recv(master_fd, buffer, sizeof(buffer), 0);\
-    // STEP 2: REPLCONF listening-port
+    recv(master_fd, buffer, sizeof(buffer), 0);
+
     string port_str = to_string(listening_port);
+
     string replconf1 =
         "*3\r\n"
         "$8\r\n"
@@ -66,10 +82,10 @@ void connect_to_master() {
         "listening-port\r\n"
         "$" + to_string(port_str.size()) + "\r\n" +
         port_str + "\r\n";
+
     send(master_fd, replconf1.c_str(), replconf1.size(), 0);
     recv(master_fd, buffer, sizeof(buffer), 0);
 
-    // STEP 3: REPLCONF capa psync2
     string replconf2 =
         "*3\r\n"
         "$8\r\n"
@@ -82,7 +98,6 @@ void connect_to_master() {
     send(master_fd, replconf2.c_str(), replconf2.size(), 0);
     recv(master_fd, buffer, sizeof(buffer), 0);
 
-    // STEP 4: PSYNC
     string psync =
         "*3\r\n"
         "$5\r\n"
@@ -94,18 +109,33 @@ void connect_to_master() {
 
     send(master_fd, psync.c_str(), psync.size(), 0);
 
-    // Read FULLRESYNC
-    recv(master_fd, buffer, sizeof(buffer), 0);
-
-    // Read RDB header
-    string rdb_header;
+    // Read FULLRESYNC line first
+    string line;
     char ch;
 
     while (true) {
         int n = recv(master_fd, &ch, 1, 0);
 
         if (n <= 0) {
+            return;
+        }
+
+        line += ch;
+
+        if (line.size() >= 2 &&
+            line.substr(line.size() - 2) == "\r\n") {
             break;
+        }
+    }
+
+    // Read RDB header: $<size>\r\n
+    string rdb_header;
+
+    while (true) {
+        int n = recv(master_fd, &ch, 1, 0);
+
+        if (n <= 0) {
+            return;
         }
 
         rdb_header += ch;
@@ -119,16 +149,19 @@ void connect_to_master() {
     int rdb_size = stoi(rdb_header.substr(1, rdb_header.size() - 3));
 
     vector<char> rdb_data(rdb_size);
+
     int received = 0;
 
     while (received < rdb_size) {
-        int n = recv(master_fd,
-                     rdb_data.data() + received,
-                     rdb_size - received,
-                     0);
+        int n = recv(
+            master_fd,
+            rdb_data.data() + received,
+            rdb_size - received,
+            0
+        );
 
         if (n <= 0) {
-            break;
+            return;
         }
 
         received += n;
@@ -199,9 +232,10 @@ void handle_psync(int client_fd) {
     send(client_fd, rdb_header.c_str(), rdb_header.size(), 0);
     send(client_fd, empty_rdb, rdb_size, 0);
 }
-
 void propagate_to_replica(const vector<string>& cmd, int replica_fd) {
-    if (replica_fd == -1) return;
+    if (replica_fd == -1) {
+        return;
+    }
 
     string resp = "*" + to_string(cmd.size()) + "\r\n";
 
@@ -213,12 +247,22 @@ void propagate_to_replica(const vector<string>& cmd, int replica_fd) {
     send(replica_fd, resp.c_str(), resp.size(), 0);
 }
 
+int get_command_size(const vector<string>& cmd) {
+    int total = 1 + to_string(cmd.size()).size() + 2; // *argc\r\n
+    for (const auto& arg : cmd) {
+        total += 1; // $
+        total += to_string(arg.size()).size();
+        total += 2; // \r\n
+        total += arg.size();
+        total += 2; // \r\n
+    }
+    return total;
+}
+
 void listen_to_master() {
     if (master_fd == -1) return;
-
     char buffer[4096];
     string pending;
-
     while (true) {
         int bytes = recv(master_fd, buffer, sizeof(buffer), 0);
         if (bytes <= 0) {
@@ -227,7 +271,10 @@ void listen_to_master() {
         pending.append(buffer, bytes);
         while (true) {
             if (pending.empty()) break;
-            if (pending[0] != '*') break;
+            if (pending[0] != '*') {
+                pending.erase(0, 1);
+                continue;
+            }
             size_t pos = pending.find("\r\n");
             if (pos == string::npos) break;
             int argc = stoi(pending.substr(1, pos - 1));
@@ -246,20 +293,110 @@ void listen_to_master() {
                 }
                 int len = stoi(pending.substr(idx + 1, len_end - idx - 1));
                 idx = len_end + 2;
+
                 if (idx + len + 2 > pending.size()) {
                     incomplete = true;
                     break;
                 }
+
                 cmd.push_back(pending.substr(idx, len));
                 idx += len + 2;
             }
-            if(incomplete){
+
+            if (incomplete) {
                 break;
             }
+
             pending.erase(0, idx);
-            if (!cmd.empty() && cmd[0] == "SET") {
-                apply_set(cmd, -1, false);
-            }
+            if (cmd.empty()) continue;
+
+int cmd_size = get_command_size(cmd);
+
+if (cmd[0] == "SET") {
+    apply_set(cmd, -1, false);
+    replica_offset += cmd_size;
+}
+else if (cmd[0] == "PING") {
+    replica_offset += cmd_size;
+}
+else if (cmd.size() >= 3 &&
+         (cmd[0] == "REPLCONF" || cmd[0] == "replconf") &&
+         (cmd[1] == "GETACK" || cmd[1] == "getack")) {
+
+    string offset_str = to_string(replica_offset);
+
+    string ack =
+        "*3\r\n"
+        "$8\r\n"
+        "REPLCONF\r\n"
+        "$3\r\n"
+        "ACK\r\n"
+        "$" + to_string(offset_str.size()) + "\r\n" +
+        offset_str + "\r\n";
+
+    send(master_fd, ack.c_str(), ack.size(), 0);
+
+    replica_offset += cmd_size;
+}
+else {
+    replica_offset += cmd_size;
+}
         }
     }
+}
+
+void handle_wait(int client_fd, const vector<string>& cmd) {
+    if (master_repl_offset == 0) {
+        string response = ":" + to_string(replica_fds.size()) + "\r\n";
+        send(client_fd, response.c_str(), response.size(), 0);
+        return ;
+    }
+
+    string getack =
+        "*3\r\n"
+        "$8\r\n"
+        "REPLCONF\r\n"
+        "$6\r\n"
+        "GETACK\r\n"
+        "$1\r\n"
+        "*\r\n";
+
+    for (int fd : replica_fds) {
+        send(fd, getack.c_str(), getack.size(), 0);
+    }
+
+    int timeout_ms = stoi(cmd[2]);
+
+    auto start = chrono::steady_clock::now();
+
+    int synced = 0;
+
+    while (true) {
+        synced = 0;
+
+        for (int fd : replica_fds) {
+            if (replica_ack_offsets[fd] >= master_repl_offset) {
+                synced++;
+            }
+        }
+
+        if (synced >= stoi(cmd[1])) {
+            break;
+        }
+
+        auto now = chrono::steady_clock::now();
+
+        auto elapsed =
+            chrono::duration_cast<chrono::milliseconds>(now - start).count();
+
+        if (elapsed >= timeout_ms) {
+            break;
+        }
+
+        this_thread::sleep_for(chrono::milliseconds(10));
+    }
+
+    string response = ":" + to_string(synced) + "\r\n";
+
+    send(client_fd, response.c_str(), response.size(), 0);
 }
